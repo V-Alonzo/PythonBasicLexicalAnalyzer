@@ -18,6 +18,9 @@ MATH_TYPES = {
     "-": "MINUS",
     "*": "MULTIPLY",
     "/": "DIVIDE",
+    "%": "MODULO",
+    "++": "INCREMENT",
+    "--": "DECREMENT",
 }
 
 RELATIONAL_TYPES = {
@@ -50,6 +53,9 @@ NUMBER_FEEDBACK = "Invalid number. Numbers can only contain digits and at most o
 HEX_FEEDBACK = "Invalid hexadecimal number. Hexadecimal numbers must start with '0x' followed by digits (0-9) and letters (A-F)."
 LOGICAL_FEEDBACK = "Invalid logical operator."
 RELATIONAL_FEEDBACK = "Invalid relational operator."
+STRING_FEEDBACK = "Invalid string. Strings must start and end with double quotes."
+MULTI_LINE_COMMENT_FEEDBACK = "Invalid multi-line comment. Comments must start with /* and end with */."
+EOF_FEEDBACK = "Unexpected end of file."
 
 
 def tokenize(source_code):
@@ -80,6 +86,12 @@ def classify_valid_lexeme(value):
 
     if value in DELIMITER_TYPES:
         return DELIMITER_TYPES[value]
+
+    if value.startswith("//"):
+        return "SINGLE_LINE_COMMENT"
+
+    if value.startswith("/*") and value.endswith("*/"):
+        return "MULTI_LINE_COMMENT"
 
     if value in MATH_TYPES:
         return MATH_TYPES[value]
@@ -125,6 +137,11 @@ def assert_expected_tokens_are_truthful(test_case, source_code, expected_tokens)
 
         if token_type == "EOF":
             test_case.assertEqual(token_value, "")
+            test_case.assertEqual((line, column), index_to_line_column(source_code, len(source_code)))
+            test_case.assertEqual(cursor, len(source_code))
+            continue
+
+        if token_type == "ERROR" and token_value == "EOF":
             test_case.assertEqual((line, column), index_to_line_column(source_code, len(source_code)))
             test_case.assertEqual(cursor, len(source_code))
             continue
@@ -180,6 +197,7 @@ VALID_CASES = [
             ("RPAREN", ")", 1, 19),
             ("LBRACE", "{", 1, 21),
             ("RBRACE", "}", 1, 23),
+            ("ERROR", "EOF", 1, 24),
             ("EOF", "", 1, 24),
         ],
     ),
@@ -195,6 +213,7 @@ VALID_CASES = [
             ("RPAREN", ")", 1, 23),
             ("LBRACE", "{", 1, 25),
             ("RBRACE", "}", 1, 27),
+            ("ERROR", "EOF", 1, 28),
             ("EOF", "", 1, 28),
         ],
     ),
@@ -224,6 +243,7 @@ VALID_CASES = [
         "if ",
         [
             ("IF", "if", 1, 1),
+            ("ERROR", "EOF", 1, 4),
             ("EOF", "", 1, 4),
         ],
     ),
@@ -232,6 +252,7 @@ VALID_CASES = [
         "ifelse ",
         [
             ("IDENTIFIER", "ifelse", 1, 1),
+            ("ERROR", "EOF", 1, 8),
             ("EOF", "", 1, 8),
         ],
     ),
@@ -282,6 +303,19 @@ VALID_CASES = [
         ],
     ),
     (
+        "extended_math_operators",
+        "a % b ++ -- ;",
+        [
+            ("IDENTIFIER", "a", 1, 1),
+            ("MODULO", "%", 1, 3),
+            ("IDENTIFIER", "b", 1, 5),
+            ("INCREMENT", "++", 1, 7),
+            ("DECREMENT", "--", 1, 10),
+            ("SEMICOLON", ";", 1, 13),
+            ("EOF", "", 1, 14),
+        ],
+    ),
+    (
         "relational_operators",
         "< <= > >= == === != ",
         [
@@ -292,6 +326,7 @@ VALID_CASES = [
             ("EQUAL", "==", 1, 11),
             ("STRICT_EQUAL", "===", 1, 14),
             ("NOT_EQUAL", "!=", 1, 18),
+            ("ERROR", "EOF", 1, 21),
             ("EOF", "", 1, 21),
         ],
     ),
@@ -302,7 +337,39 @@ VALID_CASES = [
             ("AND", "&&", 1, 1),
             ("OR", "||", 1, 4),
             ("NOT", "!", 1, 7),
+            ("ERROR", "EOF", 1, 9),
             ("EOF", "", 1, 9),
+        ],
+    ),
+    (
+        "multi_line_comment_followed_by_code",
+        "/* hola */ int x = 1 ;",
+        [
+            ("MULTI_LINE_COMMENT", "/* hola */", 1, 1),
+            ("INT", "int", 1, 12),
+            ("IDENTIFIER", "x", 1, 16),
+            ("ASSIGN", "=", 1, 18),
+            ("NUMBER", "1", 1, 20),
+            ("SEMICOLON", ";", 1, 22),
+            ("EOF", "", 1, 23),
+        ],
+    ),
+    (
+        "single_line_comment_without_final_semicolon",
+        "// hola",
+        [
+            ("SINGLE_LINE_COMMENT", "// hola", 1, 1),
+            ("ERROR", "EOF", 1, 8),
+            ("EOF", "", 1, 8),
+        ],
+    ),
+    (
+        "multi_line_comment_without_final_semicolon",
+        "/* hola */",
+        [
+            ("MULTI_LINE_COMMENT", "/* hola */", 1, 1),
+            ("ERROR", "EOF", 1, 11),
+            ("EOF", "", 1, 11),
         ],
     ),
     (
@@ -327,6 +394,7 @@ VALID_CASES = [
         "int ",
         [
             ("INT", "int", 1, 1),
+            ("ERROR", "EOF", 1, 5),
             ("EOF", "", 1, 5),
         ],
     ),
@@ -382,6 +450,18 @@ ERROR_CASES = [
         ("ERROR", "1abc", 1, 1, NUMBER_FEEDBACK),
         ("EOF", "", 1, 6),
     ),
+    (
+        "unterminated_string_reports_eof",
+        '"hola',
+        ("ERROR", '"hola', 1, 1, STRING_FEEDBACK),
+        ("EOF", "", 1, 6),
+    ),
+    (
+        "unterminated_multiline_comment_reports_eof",
+        "/* hola",
+        ("ERROR", "/* hola", 1, 1, MULTI_LINE_COMMENT_FEEDBACK),
+        ("EOF", "", 1, 8),
+    ),
 ]
 
 
@@ -393,15 +473,32 @@ class LexerTokenizationTests(unittest.TestCase):
         tokens = tokenize(source_code)
         self.assertEqual([token_signature(token) for token in tokens], expected_tokens)
 
+    def test_single_line_comment_followed_by_code(self):
+        tokens = tokenize("// hola\nint x = 1 ;")
+
+        self.assertEqual(
+            [token_signature(token) for token in tokens],
+            [
+                ("SINGLE_LINE_COMMENT", "// hola\nint", 1, 1),
+                ("IDENTIFIER", "x", 1, 13),
+                ("ASSIGN", "=", 1, 15),
+                ("NUMBER", "1", 1, 17),
+                ("SEMICOLON", ";", 1, 19),
+                ("EOF", "", 1, 20),
+            ],
+        )
+
 
 class LexerErrorFeedbackTests(unittest.TestCase):
     maxDiff = None
 
     def assert_error_sequence(self, source_code, expected_error, expected_eof):
-        assert_expected_tokens_are_truthful(self, source_code, [expected_error[:4], expected_eof])
+        expected_eof_error = ("ERROR", "EOF", expected_eof[2], expected_eof[3], EOF_FEEDBACK)
+
+        assert_expected_tokens_are_truthful(self, source_code, [expected_error[:4], expected_eof_error[:4], expected_eof])
         tokens = tokenize(source_code)
 
-        self.assertEqual(len(tokens), 2)
+        self.assertEqual(len(tokens), 3)
         self.assertIsInstance(tokens[0], ErrorToken)
         self.assertEqual(token_signature(tokens[0]), expected_error[:4])
         expected_feedback = expected_error[4]
@@ -411,7 +508,10 @@ class LexerErrorFeedbackTests(unittest.TestCase):
         else:
             self.assertEqual(tokens[0].feedback, expected_feedback)
 
-        self.assertEqual(token_signature(tokens[1]), expected_eof)
+        self.assertIsInstance(tokens[1], ErrorToken)
+        self.assertEqual(token_signature(tokens[1]), expected_eof_error[:4])
+        self.assertEqual(tokens[1].feedback, expected_eof_error[4])
+        self.assertEqual(token_signature(tokens[2]), expected_eof)
 
     def test_error_repr_hides_feedback_by_default(self):
         error_token = tokenize("abc$ ")[0]
@@ -530,6 +630,7 @@ logic = & ;
             ("ERROR", "&", 14, 9, LOGICAL_FEEDBACK),
             ("SEMICOLON", ";", 14, 11, None),
             ("RBRACE", "}", 15, 1, None),
+            ("ERROR", "EOF", 16, 1, EOF_FEEDBACK),
             ("EOF", "", 16, 1, None),
         ]
 
@@ -549,7 +650,7 @@ logic = & ;
 
         self.assertEqual(
             [token.value for token in tokens if isinstance(token, ErrorToken)],
-            ["badId$", "0xG1", "3.14d", "&"],
+            ["badId$", "0xG1", "3.14d", "&", "EOF"],
         )
 
 
