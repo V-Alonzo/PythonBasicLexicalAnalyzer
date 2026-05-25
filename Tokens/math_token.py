@@ -6,7 +6,10 @@ class MathToken(Token):
         '+': 'PLUS',
         '-': 'MINUS',
         '*': 'MULTIPLY',
-        '/': 'DIVIDE'
+        '/': 'DIVIDE',
+        '%': 'MODULO',
+        '++' : 'INCREMENT',
+        '--' : 'DECREMENT'
     }
 
     def __init__(self, line, column, previous_token = None, value = ""):

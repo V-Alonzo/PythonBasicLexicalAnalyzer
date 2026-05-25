@@ -12,6 +12,8 @@ from Tokens.EOF_token import EOFToken
 from Tokens.logical_token import LogicalToken
 from Tokens.hexadecimal_number_token import HexNumberToken
 from Tokens.string_token import StringToken
+from Tokens.multi_line_comment_token import MultiLineCommentToken
+from Tokens.single_line_token import SingleLineCommentToken
 
 class Lexer:
     def __init__(self, source_code: str):
@@ -20,6 +22,40 @@ class Lexer:
         self.line = 1
         self.column = 1
         self.tokens: List[Token] = []
+
+    def append_error_token(self, token_class: Token, feedback: str = ""):
+        self.tokens.append(
+            ErrorToken(
+                token_class.line,
+                token_class.column,
+                None,
+                token_class.value,
+                feedback,
+            )
+        )
+
+    def finalize_pending_token(self, tokens_classes: List[Token], error_token_class = None):
+        best_token_type = self.determine_token_type(tokens_classes)
+
+        if best_token_type is not None:
+            self.tokens.append(best_token_type)
+            return
+
+        if error_token_class is not None and not error_token_class.value.isspace() and error_token_class.value != "":
+            self.append_error_token(error_token_class, error_token_class.get_feedback())
+            return
+
+        if tokens_classes[0].value != "" and not tokens_classes[0].value.isspace():
+            self.append_error_token(tokens_classes[0])
+
+    def finalize_eof(self, tokens_classes: List[Token], error_token_class = None):
+        self.finalize_pending_token(tokens_classes, error_token_class)
+
+        if len(self.tokens) == 0 or self.tokens[-1].type != "SEMICOLON":
+            self.tokens.append(ErrorToken(self.line, self.column, None, "EOF", "Unexpected end of file."))
+
+        self.tokens.append(EOFToken(self.line, self.column, self.tokens[-1] if self.tokens else None))
+        return self.tokens
 
     def get_next_char(self) -> Optional[str]:
         if self.position >= len(self.source):
@@ -48,6 +84,12 @@ class Lexer:
             return None
         
 
+    def peek_next_char(self) -> Optional[str]:
+        if self.position >= len(self.source):
+            return None
+        return self.source[self.position]
+        
+
     def generate_token_classes(self, line, column, previous_token = None) -> List[Token]:
         return [
             KEYWORD(line, column, previous_token),
@@ -58,7 +100,9 @@ class Lexer:
             AssignToken(line, column, previous_token),
             LogicalToken(line, column, previous_token),
             HexNumberToken(line, column, previous_token),
-            StringToken(line, column, previous_token)
+            StringToken(line, column, previous_token),
+            MultiLineCommentToken(line, column, previous_token),
+            SingleLineCommentToken(line, column, previous_token)
         ]
 
 
@@ -71,37 +115,15 @@ class Lexer:
         currCharacter = self.get_next_char()
 
         is_building_string = False
+        is_building_comment = False
+        is_building_single_line_comment = False
 
         error_token_class = None
 
         while currCharacter is not None:
 
-            while not is_building_string and (currCharacter.isspace() or currCharacter in ['\n'] or delimiter_helper.is_valid_char(currCharacter)):
-                best_token_type = self.determine_token_type(tokens_classes)
-
-                if best_token_type is None:
-                    if error_token_class is not None and not error_token_class.value.isspace() and error_token_class.value != "":
-                        self.tokens.append(
-                            ErrorToken(
-                                error_token_class.line,
-                                error_token_class.column,
-                                None,
-                                error_token_class.value,
-                                error_token_class.get_feedback()
-                            )
-                        )
-                    elif error_token_class is None and tokens_classes[0].value != "" and not tokens_classes[0].value.isspace():
-                        self.tokens.append(
-                            ErrorToken(
-                                tokens_classes[0].line,
-                                tokens_classes[0].column,
-                                None,
-                                tokens_classes[0].value,
-                                ""
-                            )
-                        )
-                else:
-                    self.tokens.append(best_token_type)
+            while currCharacter is not None and not is_building_string and not is_building_comment and not is_building_single_line_comment and (currCharacter.isspace() or currCharacter in ['\n'] or delimiter_helper.is_valid_char(currCharacter)):
+                self.finalize_pending_token(tokens_classes, error_token_class)
 
                 error_token_class = None
 
@@ -115,11 +137,18 @@ class Lexer:
                 tokens_classes = self.generate_token_classes(self.line, self.column, self.tokens[-1] if self.tokens else None)
 
                 if currCharacter is None:
-                    self.tokens.append(EOFToken(self.line, self.column, self.tokens[-1] if self.tokens else None))
-                    return self.tokens
+                    return self.finalize_eof(tokens_classes)
 
             if currCharacter == '"':
                 is_building_string = not is_building_string
+            elif currCharacter == '/' and self.peek_next_char() == '*':
+                is_building_comment = True
+            elif currCharacter == '*' and self.peek_next_char() == '/':
+                is_building_comment = False
+            elif currCharacter == '/' and self.peek_next_char() == '/':
+                is_building_single_line_comment = True
+            elif currCharacter == '\n' and is_building_single_line_comment:
+                is_building_single_line_comment = False
 
             for token_class in tokens_classes:
                 token_class.append_char(currCharacter)
@@ -133,16 +162,14 @@ class Lexer:
             currCharacter = self.get_next_char()
             self.column += 1
 
-        self.tokens.append(EOFToken(self.line, self.column, self.tokens[-1] if self.tokens else None))
-        return self.tokens
+        return self.finalize_eof(tokens_classes, error_token_class)
 
 if __name__ == "__main__":
     #Source code must always have a space between tokens, 
     #otherwise the lexer will not be able to determine the correct token type. 
     #For example, 
     #"intx=42;" must be written as "int x = 42;" to be correctly tokenized.
-    source_code = '''[ 
-'''
+    source_code = '''// hola\nint x = 1 ;'''
 
     my_lexer = Lexer(source_code)
 
