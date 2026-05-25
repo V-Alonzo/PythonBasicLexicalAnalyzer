@@ -26,3 +26,7 @@ class LogicalToken(Token):
     
     def get_feedback(self):
         return f"Invalid logical operator."
+    
+    def could_be_valid_token(self):
+        """Checks if the current value could still potentially form a valid logical operator token with more characters."""
+        return self.value == '' or any(operator.startswith(self.value) and len(operator) > len(self.value) for operator in self.operators)

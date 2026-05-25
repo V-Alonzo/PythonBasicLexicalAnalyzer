@@ -32,6 +32,11 @@ class Token(ABC):
         return self.verify_current_state()
     
     @abstractmethod
+    def could_be_valid_token(self) -> bool:
+        """Checks if the current value could still potentially form a valid token with more characters."""
+        pass
+    
+    @abstractmethod
     def is_valid_char(self, char) -> bool:
         """Checks if a character can be part of the token's value."""
         # This method can be overridden by specific token types to define valid characters

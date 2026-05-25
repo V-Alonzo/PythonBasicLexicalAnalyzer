@@ -19,3 +19,11 @@ class NumberToken(Token):
     
     def get_feedback(self):
         return f"Invalid number. Numbers can only contain digits and at most one decimal point."
+    
+    def could_be_valid_token(self):
+        """Checks if the current value could still potentially form a valid number token with more characters."""
+        if self.value == '':
+            return True
+        if self.value.count('.') > 1:
+            return False
+        return all(char.isdigit() or char == '.' for char in self.value)

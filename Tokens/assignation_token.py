@@ -17,3 +17,7 @@ class AssignToken(Token):
         """Provides feedback on the token's validity."""
         if self.value != '=':
             return f"Invalid assignment operator. Expected '='."
+        
+    def could_be_valid_token(self) -> bool:
+        """Checks if the current value could still potentially form a valid assignment token with more characters."""
+        return self.value == '' or self.value == '='

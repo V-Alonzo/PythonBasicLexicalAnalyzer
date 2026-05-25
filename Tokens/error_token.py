@@ -19,6 +19,9 @@ class ErrorToken(Token):
     
     def set_feedback(self, feedback: str):
         self.feedback = feedback
+
+    def could_be_valid_token(self):
+        return None
     
     def __repr__(self):
         if not self.should_show_feedback:

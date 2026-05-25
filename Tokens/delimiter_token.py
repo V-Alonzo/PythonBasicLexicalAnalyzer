@@ -29,3 +29,7 @@ class DelimiterToken(Token):
     
     def get_feedback(self):
         return "Invalid delimiter."
+    
+    def could_be_valid_token(self):
+        """Checks if the current value could still potentially form a valid delimiter token with more characters."""
+        return self.value == '' or any(delimiter.startswith(self.value) for delimiter in self.delimiters)

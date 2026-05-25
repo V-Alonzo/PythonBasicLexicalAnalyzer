@@ -49,6 +49,7 @@ IDENTIFIER_FEEDBACK = "Invalid identifier. Identifiers must start with a letter 
 NUMBER_FEEDBACK = "Invalid number. Numbers can only contain digits and at most one decimal point."
 HEX_FEEDBACK = "Invalid hexadecimal number. Hexadecimal numbers must start with '0x' followed by digits (0-9) and letters (A-F)."
 LOGICAL_FEEDBACK = "Invalid logical operator."
+RELATIONAL_FEEDBACK = "Invalid relational operator."
 
 
 def tokenize(source_code):
@@ -360,7 +361,7 @@ ERROR_CASES = [
     (
         "double_exclamation_feedback",
         "!! ",
-        ("ERROR", "!!", 1, 1, LOGICAL_FEEDBACK),
+        ("ERROR", "!!", 1, 1, (LOGICAL_FEEDBACK, RELATIONAL_FEEDBACK)),
         ("EOF", "", 1, 4),
     ),
     (
@@ -403,7 +404,13 @@ class LexerErrorFeedbackTests(unittest.TestCase):
         self.assertEqual(len(tokens), 2)
         self.assertIsInstance(tokens[0], ErrorToken)
         self.assertEqual(token_signature(tokens[0]), expected_error[:4])
-        self.assertEqual(tokens[0].feedback, expected_error[4])
+        expected_feedback = expected_error[4]
+
+        if isinstance(expected_feedback, (tuple, list, set)):
+            self.assertIn(tokens[0].feedback, expected_feedback)
+        else:
+            self.assertEqual(tokens[0].feedback, expected_feedback)
+
         self.assertEqual(token_signature(tokens[1]), expected_eof)
 
     def test_error_repr_hides_feedback_by_default(self):

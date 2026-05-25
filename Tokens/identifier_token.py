@@ -33,4 +33,21 @@ class IdentifierToken(Token):
     def get_feedback(self):
         """Provides feedback on the token's validity."""
         return "Invalid identifier. Identifiers must start with a letter and can only contain letters, digits, and underscores. Additionally, identifiers cannot be keywords."
+    
+    def could_be_valid_token(self):
+        """Checks if the current value could still potentially form a valid identifier token with more characters."""
+        if self.value == '':
+            return True
+        
+        if self.value in KEYWORD.KEYWORDS:
+            return False
+        
+        if not self.value[0].isalpha():
+            return False
+        
+        for char in self.value[1:]:
+            if not (char.isalnum() or char == '_'):
+                return False
+            
+        return True
         

@@ -13,3 +13,6 @@ class EOFToken(Token):
     
     def get_feedback(self):
         return "End of file reached. No more tokens to process."
+    
+    def could_be_valid_token(self) -> bool:
+        return None

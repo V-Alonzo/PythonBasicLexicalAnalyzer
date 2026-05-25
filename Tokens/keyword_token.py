@@ -26,3 +26,7 @@ class KEYWORD(Token):
     
     def get_feedback(self):
         return f"Invalid keyword."
+    
+    def could_be_valid_token(self):
+        """Checks if the current value could still potentially form a valid keyword token with more characters."""
+        return self.value == '' or any(keyword.startswith(self.value) for keyword in self.KEYWORDS)

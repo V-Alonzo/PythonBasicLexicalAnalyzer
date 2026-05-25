@@ -21,30 +21,6 @@ class Lexer:
         self.column = 1
         self.tokens: List[Token] = []
 
-    def infer_error_feedback(self, value: str) -> str:
-        if value.startswith("0x"):
-            return HexNumberToken(0, 0).get_feedback()
-
-        if value and value[0].isalpha():
-            return IdentifierToken(0, 0).get_feedback()
-
-        if value and (value[0].isdigit() or value[0] == '.'):
-            return NumberToken(0, 0).get_feedback()
-
-        if any(char in ['&', '|', '!'] for char in value):
-            return LogicalToken(0, 0).get_feedback()
-
-        if any(char in ['<', '>', '='] for char in value):
-            return RelationalToken(0, 0).get_feedback()
-
-        if any(char in ['+', '-', '*', '/'] for char in value):
-            return MathToken(0, 0).get_feedback()
-
-        if '"' in value:
-            return StringToken(0, 0).get_feedback()
-
-        return ""
-
     def get_next_char(self) -> Optional[str]:
         if self.position >= len(self.source):
             return None
@@ -96,24 +72,38 @@ class Lexer:
 
         is_building_string = False
 
+        error_token_class = None
+
         while currCharacter is not None:
 
             while not is_building_string and (currCharacter.isspace() or currCharacter in ['\n'] or delimiter_helper.is_valid_char(currCharacter)):
                 best_token_type = self.determine_token_type(tokens_classes)
 
                 if best_token_type is None:
-                    if not tokens_classes[0].value.isspace() and tokens_classes[0].value != "":
+                    if error_token_class is not None and not error_token_class.value.isspace() and error_token_class.value != "":
+                        self.tokens.append(
+                            ErrorToken(
+                                error_token_class.line,
+                                error_token_class.column,
+                                None,
+                                error_token_class.value,
+                                error_token_class.get_feedback()
+                            )
+                        )
+                    elif error_token_class is None and tokens_classes[0].value != "" and not tokens_classes[0].value.isspace():
                         self.tokens.append(
                             ErrorToken(
                                 tokens_classes[0].line,
                                 tokens_classes[0].column,
                                 None,
                                 tokens_classes[0].value,
-                                self.infer_error_feedback(tokens_classes[0].value),
+                                ""
                             )
                         )
                 else:
                     self.tokens.append(best_token_type)
+
+                error_token_class = None
 
                 if delimiter_helper.is_valid_char(currCharacter):
                     self.tokens.append(DelimiterToken(self.line, self.column, self.tokens[-1] if self.tokens else None, currCharacter))
@@ -134,6 +124,12 @@ class Lexer:
             for token_class in tokens_classes:
                 token_class.append_char(currCharacter)
 
+
+            still_valid_token_classes = [possible_valid_class for possible_valid_class in tokens_classes if possible_valid_class.could_be_valid_token()]
+            if len(still_valid_token_classes) == 1:
+                error_token_class = still_valid_token_classes[0]
+
+
             currCharacter = self.get_next_char()
             self.column += 1
 
@@ -145,21 +141,7 @@ if __name__ == "__main__":
     #otherwise the lexer will not be able to determine the correct token type. 
     #For example, 
     #"intx=42;" must be written as "int x = 42;" to be correctly tokenized.
-    source_code = '''int total = 0 ;
-float average = 3.5 ;
-if ( total <= 10 && ! done ) {
-message = "hola ; mundo" ;
-total = total + 1 - 2 * 3 / 4 ;
-badId$ = 7 ;
-badHex = 0xG1 ;
-badNumber = 3.14d ;
-check === != >= <= , return ;
-} else {
-while ( total != 0 ) {
-total = total - 1 ;
-}
-logic = & ;
-}
+    source_code = '''[ 
 '''
 
     my_lexer = Lexer(source_code)

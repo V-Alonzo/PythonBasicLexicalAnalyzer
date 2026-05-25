@@ -15,3 +15,7 @@ class StringToken(Token):
     
     def get_feedback(self):
         return f"Invalid string. Strings must start and end with double quotes."
+    
+    def could_be_valid_token(self):
+        """Checks if the current value could still potentially form a valid string token with more characters."""
+        return self.value == '' or (self.value.startswith('"') and not self.value.endswith('"')) or (self.value.startswith('"') and self.value.endswith('"'))

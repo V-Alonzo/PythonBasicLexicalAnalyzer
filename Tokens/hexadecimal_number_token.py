@@ -22,3 +22,15 @@ class HexNumberToken(Token):
     def get_feedback(self):
         """Provides feedback on the token's validity."""
         return "Invalid hexadecimal number. Hexadecimal numbers must start with '0x' followed by digits (0-9) and letters (A-F)."
+    
+    def could_be_valid_token(self):
+        """Checks if the current value could still potentially form a valid hexadecimal number token with more characters."""
+        if self.value == '' or self.value == '0' or self.value == '0x':
+            return True
+        if self.value.startswith("0x"):
+            try:
+                int(self.value, 16)
+                return True
+            except ValueError:
+                return False
+        return False
