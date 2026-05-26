@@ -11,7 +11,8 @@ class KEYWORD(Token):
         'double',
         'string',
         'char',
-        'bool'
+        'bool',
+        "for"
     }
 
     def __init__(self, line, column, previous_token = None, value = ""):

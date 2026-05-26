@@ -223,21 +223,8 @@ if __name__ == "__main__":
     #"intx=42;" must be written as "int x = 42;" to be correctly tokenized.
     source_code = '''
 
-int x = 10;
-
-{
-
-    int y = 20;
-
-    y = 50;
-
-}
-
-y = 50;
-
-x = 20;
-
-x < z;
+    int y = 5;
+for (int i = 0; i < 10; i ++) y + 2;
     
     '''
 
