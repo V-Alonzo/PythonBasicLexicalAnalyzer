@@ -172,6 +172,19 @@ class Lexer:
             while currCharacter is not None and not is_building_string and not is_building_comment and not is_building_single_line_comment and (currCharacter.isspace() or currCharacter in ['\n'] or delimiter_helper.is_valid_char(currCharacter)):
                 self.finalize_pending_token(tokens_classes, error_token_class)
 
+                if len(self.tokens) >= 3 and (any(isinstance(self.tokens[-1], token_type) for token_type in self.assignable_tokens) or isinstance(self.tokens[-1], IdentifierToken)):
+                    if isinstance(self.tokens[-2], RelationalToken) and (any(isinstance(self.tokens[-3], token_type) for token_type in self.assignable_tokens) or isinstance(self.tokens[-3], IdentifierToken)):
+                        var_type_1 = return_value_type(self.tokens[-3].value) if any(isinstance(self.tokens[-3], token_type) for token_type in self.assignable_tokens) else self.symbol_table.lookup(self.tokens[-3].value) if isinstance(self.tokens[-3], IdentifierToken) else None
+                        var_type_2 = return_value_type(self.tokens[-1].value) if any(isinstance(self.tokens[-1], token_type) for token_type in self.assignable_tokens) else self.symbol_table.lookup(self.tokens[-1].value) if isinstance(self.tokens[-1], IdentifierToken) else None
+
+                        if var_type_1 is not None and var_type_2 is not None and var_type_1 != var_type_2:
+                            self.append_error_token(self.tokens[-1], f"Type mismatch in relational expression: {var_type_1} and {var_type_2}")
+                        if var_type_1 is None:
+                            self.append_error_token(self.tokens[-3], f"Undeclared variable: {self.tokens[-3].value}")
+                        if var_type_2 is None:
+                            self.append_error_token(self.tokens[-1], f"Undeclared variable: {self.tokens[-1].value}")
+
+
                 error_token_class = None
 
                 if delimiter_helper.is_valid_char(currCharacter):
@@ -233,7 +246,7 @@ if __name__ == "__main__":
     #"intx=42;" must be written as "int x = 42;" to be correctly tokenized.
     source_code = '''
 
-do {int i = 5} while (i > 0);
+"5" != 5;
     
     '''
 
