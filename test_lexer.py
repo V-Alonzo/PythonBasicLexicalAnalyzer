@@ -11,6 +11,15 @@ KEYWORD_TYPES = {
     "return": "RETURN",
     "int": "INT",
     "float": "FLOAT",
+    "double": "DOUBLE",
+    "string": "STRING",
+    "char": "CHAR",
+    "bool": "BOOL",
+}
+
+BOOLEAN_LITERAL_TYPES = {
+    "true": "TRUE",
+    "false": "FALSE",
 }
 
 MATH_TYPES = {
@@ -66,6 +75,10 @@ def token_signature(token):
     return (token.type, token.value, token.line, token.column)
 
 
+def token_details(token):
+    return (token.type, token.value, token.line, token.column, getattr(token, "feedback", None))
+
+
 def index_to_line_column(source_code, index):
     line = 1
     column = 1
@@ -80,9 +93,32 @@ def index_to_line_column(source_code, index):
     return (line, column)
 
 
+def line_column_to_index(source_code, line, column):
+    current_line = 1
+    current_column = 1
+
+    for index, char in enumerate(source_code):
+        if (current_line, current_column) == (line, column):
+            return index
+
+        if char == "\n":
+            current_line += 1
+            current_column = 1
+        else:
+            current_column += 1
+
+    if (current_line, current_column) == (line, column):
+        return len(source_code)
+
+    raise AssertionError(f"Position {(line, column)} does not exist in source code.")
+
+
 def classify_valid_lexeme(value):
     if value in KEYWORD_TYPES:
         return KEYWORD_TYPES[value]
+
+    if value in BOOLEAN_LITERAL_TYPES:
+        return BOOLEAN_LITERAL_TYPES[value]
 
     if value in DELIMITER_TYPES:
         return DELIMITER_TYPES[value]
@@ -121,7 +157,7 @@ def classify_valid_lexeme(value):
     except ValueError:
         pass
 
-    if value and value[0].isalpha() and value not in KEYWORD_TYPES:
+    if value and value[0].isalpha() and value not in KEYWORD_TYPES and value not in BOOLEAN_LITERAL_TYPES:
         if all(char.isalnum() or char == "_" for char in value[1:]):
             return "IDENTIFIER"
 
@@ -129,32 +165,37 @@ def classify_valid_lexeme(value):
 
 
 def assert_expected_tokens_are_truthful(test_case, source_code, expected_tokens):
-    cursor = 0
+    previous_token = None
 
     for token_type, token_value, line, column in expected_tokens:
-        while cursor < len(source_code) and source_code[cursor].isspace():
-            cursor += 1
-
         if token_type == "EOF":
             test_case.assertEqual(token_value, "")
             test_case.assertEqual((line, column), index_to_line_column(source_code, len(source_code)))
-            test_case.assertEqual(cursor, len(source_code))
+            previous_token = (token_type, token_value, line, column)
             continue
 
         if token_type == "ERROR" and token_value == "EOF":
             test_case.assertEqual((line, column), index_to_line_column(source_code, len(source_code)))
-            test_case.assertEqual(cursor, len(source_code))
+            previous_token = (token_type, token_value, line, column)
             continue
 
-        test_case.assertEqual((line, column), index_to_line_column(source_code, cursor))
-        test_case.assertEqual(source_code[cursor:cursor + len(token_value)], token_value)
+        index = line_column_to_index(source_code, line, column)
+        test_case.assertEqual(source_code[index:index + len(token_value)], token_value)
 
-        if token_type == "ERROR":
-            test_case.assertIsNone(classify_valid_lexeme(token_value))
-        else:
+        if token_type != "ERROR":
             test_case.assertEqual(classify_valid_lexeme(token_value), token_type)
+        else:
+            is_semantic_overlay = (
+                previous_token is not None
+                and previous_token[1] == token_value
+                and previous_token[2] == line
+                and previous_token[3] == column
+            )
 
-        cursor += len(token_value)
+            if not is_semantic_overlay:
+                test_case.assertIsNone(classify_valid_lexeme(token_value))
+
+        previous_token = (token_type, token_value, line, column)
 
 
 VALID_CASES = [
@@ -183,59 +224,121 @@ VALID_CASES = [
         ],
     ),
     (
-        "if_condition_with_delimiters",
-        "if ( x < y && ! z ) { }",
+        "double_declaration",
+        "double ratio = 3.14 ;",
         [
-            ("IF", "if", 1, 1),
-            ("LPAREN", "(", 1, 4),
-            ("IDENTIFIER", "x", 1, 6),
-            ("LESS_THAN", "<", 1, 8),
-            ("IDENTIFIER", "y", 1, 10),
-            ("AND", "&&", 1, 12),
-            ("NOT", "!", 1, 15),
-            ("IDENTIFIER", "z", 1, 17),
-            ("RPAREN", ")", 1, 19),
-            ("LBRACE", "{", 1, 21),
-            ("RBRACE", "}", 1, 23),
-            ("ERROR", "EOF", 1, 24),
-            ("EOF", "", 1, 24),
+            ("DOUBLE", "double", 1, 1),
+            ("IDENTIFIER", "ratio", 1, 8),
+            ("ASSIGN", "=", 1, 14),
+            ("NUMBER", "3.14", 1, 16),
+            ("SEMICOLON", ";", 1, 21),
+            ("EOF", "", 1, 22),
         ],
     ),
     (
-        "while_condition",
-        "while ( counter <= 10 ) { }",
+        "string_declaration",
+        'string name = "hi" ;',
         [
-            ("WHILE", "while", 1, 1),
-            ("LPAREN", "(", 1, 7),
-            ("IDENTIFIER", "counter", 1, 9),
-            ("LESS_THAN_EQUAL", "<=", 1, 17),
-            ("NUMBER", "10", 1, 20),
-            ("RPAREN", ")", 1, 23),
-            ("LBRACE", "{", 1, 25),
-            ("RBRACE", "}", 1, 27),
-            ("ERROR", "EOF", 1, 28),
-            ("EOF", "", 1, 28),
+            ("STRING", "string", 1, 1),
+            ("IDENTIFIER", "name", 1, 8),
+            ("ASSIGN", "=", 1, 13),
+            ("STRING", '"hi"', 1, 15),
+            ("SEMICOLON", ";", 1, 20),
+            ("EOF", "", 1, 21),
         ],
     ),
     (
-        "return_statement",
-        "return value ;",
+        "bool_declaration_with_boolean_literal",
+        "bool flag = true ;",
         [
-            ("RETURN", "return", 1, 1),
-            ("IDENTIFIER", "value", 1, 8),
-            ("SEMICOLON", ";", 1, 14),
-            ("EOF", "", 1, 15),
+            ("BOOL", "bool", 1, 1),
+            ("IDENTIFIER", "flag", 1, 6),
+            ("ASSIGN", "=", 1, 11),
+            ("TRUE", "true", 1, 13),
+            ("SEMICOLON", ";", 1, 18),
+            ("EOF", "", 1, 19),
+        ],
+    ),
+    (
+        "if_condition_with_declared_identifiers",
+        "int x = 1 ; int y = 2 ; bool z = false ; if ( x < y && ! z ) { }",
+        [
+            ("INT", "int", 1, 1),
+            ("IDENTIFIER", "x", 1, 5),
+            ("ASSIGN", "=", 1, 7),
+            ("NUMBER", "1", 1, 9),
+            ("SEMICOLON", ";", 1, 11),
+            ("INT", "int", 1, 13),
+            ("IDENTIFIER", "y", 1, 17),
+            ("ASSIGN", "=", 1, 19),
+            ("NUMBER", "2", 1, 21),
+            ("SEMICOLON", ";", 1, 23),
+            ("BOOL", "bool", 1, 25),
+            ("IDENTIFIER", "z", 1, 30),
+            ("ASSIGN", "=", 1, 32),
+            ("FALSE", "false", 1, 34),
+            ("SEMICOLON", ";", 1, 40),
+            ("IF", "if", 1, 42),
+            ("LPAREN", "(", 1, 45),
+            ("IDENTIFIER", "x", 1, 47),
+            ("LESS_THAN", "<", 1, 49),
+            ("IDENTIFIER", "y", 1, 51),
+            ("AND", "&&", 1, 53),
+            ("NOT", "!", 1, 56),
+            ("IDENTIFIER", "z", 1, 58),
+            ("RPAREN", ")", 1, 60),
+            ("LBRACE", "{", 1, 62),
+            ("RBRACE", "}", 1, 64),
+            ("ERROR", "EOF", 1, 65),
+            ("EOF", "", 1, 65),
+        ],
+    ),
+    (
+        "while_condition_with_declared_counter",
+        "int counter = 0 ; while ( counter <= 10 ) { }",
+        [
+            ("INT", "int", 1, 1),
+            ("IDENTIFIER", "counter", 1, 5),
+            ("ASSIGN", "=", 1, 13),
+            ("NUMBER", "0", 1, 15),
+            ("SEMICOLON", ";", 1, 17),
+            ("WHILE", "while", 1, 19),
+            ("LPAREN", "(", 1, 25),
+            ("IDENTIFIER", "counter", 1, 27),
+            ("LESS_THAN_EQUAL", "<=", 1, 35),
+            ("NUMBER", "10", 1, 38),
+            ("RPAREN", ")", 1, 41),
+            ("LBRACE", "{", 1, 43),
+            ("RBRACE", "}", 1, 45),
+            ("ERROR", "EOF", 1, 46),
+            ("EOF", "", 1, 46),
+        ],
+    ),
+    (
+        "return_statement_with_declared_identifier",
+        "int value = 1 ; return value ;",
+        [
+            ("INT", "int", 1, 1),
+            ("IDENTIFIER", "value", 1, 5),
+            ("ASSIGN", "=", 1, 11),
+            ("NUMBER", "1", 1, 13),
+            ("SEMICOLON", ";", 1, 15),
+            ("RETURN", "return", 1, 17),
+            ("IDENTIFIER", "value", 1, 24),
+            ("SEMICOLON", ";", 1, 30),
+            ("EOF", "", 1, 31),
         ],
     ),
     (
         "identifier_with_underscore_and_digits",
-        "variable_2 = 1 ;",
+        "int variable_2 = 1 ;",
         [
-            ("IDENTIFIER", "variable_2", 1, 1),
-            ("ASSIGN", "=", 1, 12),
-            ("NUMBER", "1", 1, 14),
-            ("SEMICOLON", ";", 1, 16),
-            ("EOF", "", 1, 17),
+            ("INT", "int", 1, 1),
+            ("IDENTIFIER", "variable_2", 1, 5),
+            ("ASSIGN", "=", 1, 16),
+            ("NUMBER", "1", 1, 18),
+            ("SEMICOLON", ";", 1, 20),
+            ("EOF", "", 1, 21),
         ],
     ),
     (
@@ -249,22 +352,26 @@ VALID_CASES = [
     ),
     (
         "identifier_similar_to_keyword",
-        "ifelse ",
+        "int ifelse = 1 ;",
         [
-            ("IDENTIFIER", "ifelse", 1, 1),
-            ("ERROR", "EOF", 1, 8),
-            ("EOF", "", 1, 8),
+            ("INT", "int", 1, 1),
+            ("IDENTIFIER", "ifelse", 1, 5),
+            ("ASSIGN", "=", 1, 12),
+            ("NUMBER", "1", 1, 14),
+            ("SEMICOLON", ";", 1, 16),
+            ("EOF", "", 1, 17),
         ],
     ),
     (
-        "hexadecimal_number",
-        "value = 0xFF ;",
+        "hexadecimal_number_assignment",
+        "int value = 0xFF ;",
         [
-            ("IDENTIFIER", "value", 1, 1),
-            ("ASSIGN", "=", 1, 7),
-            ("HEX NUMBER", "0xFF", 1, 9),
-            ("SEMICOLON", ";", 1, 14),
-            ("EOF", "", 1, 15),
+            ("INT", "int", 1, 1),
+            ("IDENTIFIER", "value", 1, 5),
+            ("ASSIGN", "=", 1, 11),
+            ("HEX NUMBER", "0xFF", 1, 13),
+            ("SEMICOLON", ";", 1, 18),
+            ("EOF", "", 1, 19),
         ],
     ),
     (
@@ -286,33 +393,39 @@ VALID_CASES = [
         ],
     ),
     (
-        "math_operators",
-        "a + b - c * d / e ;",
+        "math_operators_inside_assignment",
+        "int result = 1 + 2 - 3 * 4 / 5 ;",
         [
-            ("IDENTIFIER", "a", 1, 1),
-            ("PLUS", "+", 1, 3),
-            ("IDENTIFIER", "b", 1, 5),
-            ("MINUS", "-", 1, 7),
-            ("IDENTIFIER", "c", 1, 9),
-            ("MULTIPLY", "*", 1, 11),
-            ("IDENTIFIER", "d", 1, 13),
-            ("DIVIDE", "/", 1, 15),
-            ("IDENTIFIER", "e", 1, 17),
-            ("SEMICOLON", ";", 1, 19),
-            ("EOF", "", 1, 20),
+            ("INT", "int", 1, 1),
+            ("IDENTIFIER", "result", 1, 5),
+            ("ASSIGN", "=", 1, 12),
+            ("NUMBER", "1", 1, 14),
+            ("PLUS", "+", 1, 16),
+            ("NUMBER", "2", 1, 18),
+            ("MINUS", "-", 1, 20),
+            ("NUMBER", "3", 1, 22),
+            ("MULTIPLY", "*", 1, 24),
+            ("NUMBER", "4", 1, 26),
+            ("DIVIDE", "/", 1, 28),
+            ("NUMBER", "5", 1, 30),
+            ("SEMICOLON", ";", 1, 32),
+            ("EOF", "", 1, 33),
         ],
     ),
     (
-        "extended_math_operators",
-        "a % b ++ -- ;",
+        "extended_math_operators_inside_assignment",
+        "int result = 9 % 4 ++ -- ;",
         [
-            ("IDENTIFIER", "a", 1, 1),
-            ("MODULO", "%", 1, 3),
-            ("IDENTIFIER", "b", 1, 5),
-            ("INCREMENT", "++", 1, 7),
-            ("DECREMENT", "--", 1, 10),
-            ("SEMICOLON", ";", 1, 13),
-            ("EOF", "", 1, 14),
+            ("INT", "int", 1, 1),
+            ("IDENTIFIER", "result", 1, 5),
+            ("ASSIGN", "=", 1, 12),
+            ("NUMBER", "9", 1, 14),
+            ("MODULO", "%", 1, 16),
+            ("NUMBER", "4", 1, 18),
+            ("INCREMENT", "++", 1, 20),
+            ("DECREMENT", "--", 1, 23),
+            ("SEMICOLON", ";", 1, 26),
+            ("EOF", "", 1, 27),
         ],
     ),
     (
@@ -465,6 +578,85 @@ ERROR_CASES = [
 ]
 
 
+SEMANTIC_CASES = [
+    (
+        "undeclared_assignment_reports_error_on_assign",
+        "int x = 1 ; y = 2 ;",
+        [
+            ("INT", "int", 1, 1, None),
+            ("IDENTIFIER", "x", 1, 5, None),
+            ("ASSIGN", "=", 1, 7, None),
+            ("NUMBER", "1", 1, 9, None),
+            ("SEMICOLON", ";", 1, 11, None),
+            ("IDENTIFIER", "y", 1, 13, None),
+            ("ASSIGN", "=", 1, 15, None),
+            ("ERROR", "=", 1, 15, "Undeclared variable: y"),
+            ("NUMBER", "2", 1, 17, None),
+            ("SEMICOLON", ";", 1, 19, None),
+            ("EOF", "", 1, 20, None),
+        ],
+    ),
+    (
+        "scoped_variable_becomes_undeclared_after_block",
+        "int x = 1 ; { int y = 2 ; y = 3 ; } y = 4 ;",
+        [
+            ("INT", "int", 1, 1, None),
+            ("IDENTIFIER", "x", 1, 5, None),
+            ("ASSIGN", "=", 1, 7, None),
+            ("NUMBER", "1", 1, 9, None),
+            ("SEMICOLON", ";", 1, 11, None),
+            ("LBRACE", "{", 1, 13, None),
+            ("INT", "int", 1, 15, None),
+            ("IDENTIFIER", "y", 1, 19, None),
+            ("ASSIGN", "=", 1, 21, None),
+            ("NUMBER", "2", 1, 23, None),
+            ("SEMICOLON", ";", 1, 25, None),
+            ("IDENTIFIER", "y", 1, 27, None),
+            ("ASSIGN", "=", 1, 29, None),
+            ("NUMBER", "3", 1, 31, None),
+            ("SEMICOLON", ";", 1, 33, None),
+            ("RBRACE", "}", 1, 35, None),
+            ("IDENTIFIER", "y", 1, 37, None),
+            ("ASSIGN", "=", 1, 39, None),
+            ("ERROR", "=", 1, 39, "Undeclared variable: y"),
+            ("NUMBER", "4", 1, 41, None),
+            ("SEMICOLON", ";", 1, 43, None),
+            ("EOF", "", 1, 44, None),
+        ],
+    ),
+    (
+        "type_mismatch_reports_error_after_value",
+        'int x = 1 ; x = "oops" ;',
+        [
+            ("INT", "int", 1, 1, None),
+            ("IDENTIFIER", "x", 1, 5, None),
+            ("ASSIGN", "=", 1, 7, None),
+            ("NUMBER", "1", 1, 9, None),
+            ("SEMICOLON", ";", 1, 11, None),
+            ("IDENTIFIER", "x", 1, 13, None),
+            ("ASSIGN", "=", 1, 15, None),
+            ("STRING", '"oops"', 1, 17, None),
+            ("ERROR", '"oops"', 1, 17, "Type mismatch: cannot assign value of type string to variable of type int"),
+            ("SEMICOLON", ";", 1, 24, None),
+            ("EOF", "", 1, 25, None),
+        ],
+    ),
+    (
+        "char_assignment_currently_reports_type_mismatch",
+        'char c = "a" ;',
+        [
+            ("CHAR", "char", 1, 1, None),
+            ("IDENTIFIER", "c", 1, 6, None),
+            ("ASSIGN", "=", 1, 8, None),
+            ("STRING", '"a"', 1, 10, None),
+            ("ERROR", '"a"', 1, 10, "Type mismatch: cannot assign value of type string to variable of type char"),
+            ("SEMICOLON", ";", 1, 14, None),
+            ("EOF", "", 1, 15, None),
+        ],
+    ),
+]
+
+
 class LexerTokenizationTests(unittest.TestCase):
     maxDiff = None
 
@@ -482,11 +674,13 @@ class LexerTokenizationTests(unittest.TestCase):
                 ("SINGLE_LINE_COMMENT", "// hola\nint", 1, 1),
                 ("IDENTIFIER", "x", 1, 13),
                 ("ASSIGN", "=", 1, 15),
+                ("ERROR", "=", 1, 15),
                 ("NUMBER", "1", 1, 17),
                 ("SEMICOLON", ";", 1, 19),
                 ("EOF", "", 1, 20),
             ],
         )
+        self.assertEqual(tokens[3].feedback, "Undeclared variable: x")
 
 
 class LexerErrorFeedbackTests(unittest.TestCase):
@@ -528,25 +722,34 @@ class LexerErrorFeedbackTests(unittest.TestCase):
         )
 
 
+class LexerSemanticAnalysisTests(unittest.TestCase):
+    maxDiff = None
+
+    def assert_token_details(self, source_code, expected_tokens):
+        assert_expected_tokens_are_truthful(
+            self,
+            source_code,
+            [(token_type, token_value, line, column) for token_type, token_value, line, column, _ in expected_tokens],
+        )
+
+        tokens = tokenize(source_code)
+        self.assertEqual([token_details(token) for token in tokens], expected_tokens)
+
+
 class LexerIntegratedScenarioTests(unittest.TestCase):
     maxDiff = None
 
-    def test_large_mixed_program_exercises_supported_features_together(self):
+    def test_large_mixed_program_exercises_scope_boolean_and_type_checks_together(self):
         source_code = '''int total = 0 ;
-float average = 3.5 ;
+double average = 3.5 ;
+bool done = false ;
+string message = "hola" ;
 if ( total <= 10 && ! done ) {
-message = "hola ; mundo" ;
-total = total + 1 - 2 * 3 / 4 ;
-badId$ = 7 ;
-badHex = 0xG1 ;
-badNumber = 3.14d ;
-check === != >= <= , return ;
-} else {
-while ( total != 0 ) {
-total = total - 1 ;
+int inner = 1 ;
+inner = 2 ;
 }
-logic = & ;
-}
+inner = 3 ;
+total = "oops" ;
 '''
 
         tokens = tokenize(source_code)
@@ -557,81 +760,52 @@ logic = & ;
             ("ASSIGN", "=", 1, 11, None),
             ("NUMBER", "0", 1, 13, None),
             ("SEMICOLON", ";", 1, 15, None),
-            ("FLOAT", "float", 2, 1, None),
-            ("IDENTIFIER", "average", 2, 7, None),
-            ("ASSIGN", "=", 2, 15, None),
-            ("NUMBER", "3.5", 2, 17, None),
-            ("SEMICOLON", ";", 2, 21, None),
-            ("IF", "if", 3, 1, None),
-            ("LPAREN", "(", 3, 4, None),
-            ("IDENTIFIER", "total", 3, 6, None),
-            ("LESS_THAN_EQUAL", "<=", 3, 12, None),
-            ("NUMBER", "10", 3, 15, None),
-            ("AND", "&&", 3, 18, None),
-            ("NOT", "!", 3, 21, None),
-            ("IDENTIFIER", "done", 3, 23, None),
-            ("RPAREN", ")", 3, 28, None),
-            ("LBRACE", "{", 3, 30, None),
-            ("IDENTIFIER", "message", 4, 1, None),
-            ("ASSIGN", "=", 4, 9, None),
-            ("STRING", '"hola ; mundo"', 4, 11, None),
-            ("SEMICOLON", ";", 4, 26, None),
-            ("IDENTIFIER", "total", 5, 1, None),
-            ("ASSIGN", "=", 5, 7, None),
-            ("IDENTIFIER", "total", 5, 9, None),
-            ("PLUS", "+", 5, 15, None),
-            ("NUMBER", "1", 5, 17, None),
-            ("MINUS", "-", 5, 19, None),
-            ("NUMBER", "2", 5, 21, None),
-            ("MULTIPLY", "*", 5, 23, None),
-            ("NUMBER", "3", 5, 25, None),
-            ("DIVIDE", "/", 5, 27, None),
-            ("NUMBER", "4", 5, 29, None),
-            ("SEMICOLON", ";", 5, 31, None),
-            ("ERROR", "badId$", 6, 1, IDENTIFIER_FEEDBACK),
-            ("ASSIGN", "=", 6, 8, None),
-            ("NUMBER", "7", 6, 10, None),
-            ("SEMICOLON", ";", 6, 12, None),
-            ("IDENTIFIER", "badHex", 7, 1, None),
-            ("ASSIGN", "=", 7, 8, None),
-            ("ERROR", "0xG1", 7, 10, HEX_FEEDBACK),
-            ("SEMICOLON", ";", 7, 15, None),
-            ("IDENTIFIER", "badNumber", 8, 1, None),
-            ("ASSIGN", "=", 8, 11, None),
-            ("ERROR", "3.14d", 8, 13, NUMBER_FEEDBACK),
-            ("SEMICOLON", ";", 8, 19, None),
-            ("IDENTIFIER", "check", 9, 1, None),
-            ("STRICT_EQUAL", "===", 9, 7, None),
-            ("NOT_EQUAL", "!=", 9, 11, None),
-            ("GREATER_THAN_EQUAL", ">=", 9, 14, None),
-            ("LESS_THAN_EQUAL", "<=", 9, 17, None),
-            ("COMMA", ",", 9, 20, None),
-            ("RETURN", "return", 9, 22, None),
-            ("SEMICOLON", ";", 9, 29, None),
-            ("RBRACE", "}", 10, 1, None),
-            ("ELSE", "else", 10, 3, None),
-            ("LBRACE", "{", 10, 8, None),
-            ("WHILE", "while", 11, 1, None),
-            ("LPAREN", "(", 11, 7, None),
-            ("IDENTIFIER", "total", 11, 9, None),
-            ("NOT_EQUAL", "!=", 11, 15, None),
-            ("NUMBER", "0", 11, 18, None),
-            ("RPAREN", ")", 11, 20, None),
-            ("LBRACE", "{", 11, 22, None),
-            ("IDENTIFIER", "total", 12, 1, None),
-            ("ASSIGN", "=", 12, 7, None),
-            ("IDENTIFIER", "total", 12, 9, None),
-            ("MINUS", "-", 12, 15, None),
-            ("NUMBER", "1", 12, 17, None),
-            ("SEMICOLON", ";", 12, 19, None),
-            ("RBRACE", "}", 13, 1, None),
-            ("IDENTIFIER", "logic", 14, 1, None),
-            ("ASSIGN", "=", 14, 7, None),
-            ("ERROR", "&", 14, 9, LOGICAL_FEEDBACK),
-            ("SEMICOLON", ";", 14, 11, None),
-            ("RBRACE", "}", 15, 1, None),
-            ("ERROR", "EOF", 16, 1, EOF_FEEDBACK),
-            ("EOF", "", 16, 1, None),
+            ("DOUBLE", "double", 2, 1, None),
+            ("IDENTIFIER", "average", 2, 8, None),
+            ("ASSIGN", "=", 2, 16, None),
+            ("NUMBER", "3.5", 2, 18, None),
+            ("SEMICOLON", ";", 2, 22, None),
+            ("BOOL", "bool", 3, 1, None),
+            ("IDENTIFIER", "done", 3, 6, None),
+            ("ASSIGN", "=", 3, 11, None),
+            ("FALSE", "false", 3, 13, None),
+            ("SEMICOLON", ";", 3, 19, None),
+            ("STRING", "string", 4, 1, None),
+            ("IDENTIFIER", "message", 4, 8, None),
+            ("ASSIGN", "=", 4, 16, None),
+            ("STRING", '"hola"', 4, 18, None),
+            ("SEMICOLON", ";", 4, 25, None),
+            ("IF", "if", 5, 1, None),
+            ("LPAREN", "(", 5, 4, None),
+            ("IDENTIFIER", "total", 5, 6, None),
+            ("LESS_THAN_EQUAL", "<=", 5, 12, None),
+            ("NUMBER", "10", 5, 15, None),
+            ("AND", "&&", 5, 18, None),
+            ("NOT", "!", 5, 21, None),
+            ("IDENTIFIER", "done", 5, 23, None),
+            ("RPAREN", ")", 5, 28, None),
+            ("LBRACE", "{", 5, 30, None),
+            ("INT", "int", 6, 1, None),
+            ("IDENTIFIER", "inner", 6, 5, None),
+            ("ASSIGN", "=", 6, 11, None),
+            ("NUMBER", "1", 6, 13, None),
+            ("SEMICOLON", ";", 6, 15, None),
+            ("IDENTIFIER", "inner", 7, 1, None),
+            ("ASSIGN", "=", 7, 7, None),
+            ("NUMBER", "2", 7, 9, None),
+            ("SEMICOLON", ";", 7, 11, None),
+            ("RBRACE", "}", 8, 1, None),
+            ("IDENTIFIER", "inner", 9, 1, None),
+            ("ASSIGN", "=", 9, 7, None),
+            ("ERROR", "=", 9, 7, "Undeclared variable: inner"),
+            ("NUMBER", "3", 9, 9, None),
+            ("SEMICOLON", ";", 9, 11, None),
+            ("IDENTIFIER", "total", 10, 1, None),
+            ("ASSIGN", "=", 10, 7, None),
+            ("STRING", '"oops"', 10, 9, None),
+            ("ERROR", '"oops"', 10, 9, "Type mismatch: cannot assign value of type string to variable of type int"),
+            ("SEMICOLON", ";", 10, 16, None),
+            ("EOF", "", 11, 1, None),
         ]
 
         assert_expected_tokens_are_truthful(
@@ -640,17 +814,13 @@ logic = & ;
             [(token_type, token_value, line, column) for token_type, token_value, line, column, _ in expected_tokens],
         )
 
+        self.assertEqual([token_details(token) for token in tokens], expected_tokens)
         self.assertEqual(
+            [token.feedback for token in tokens if isinstance(token, ErrorToken)],
             [
-                (token.type, token.value, token.line, token.column, getattr(token, "feedback", None))
-                for token in tokens
+                "Undeclared variable: inner",
+                "Type mismatch: cannot assign value of type string to variable of type int",
             ],
-            expected_tokens,
-        )
-
-        self.assertEqual(
-            [token.value for token in tokens if isinstance(token, ErrorToken)],
-            ["badId$", "0xG1", "3.14d", "&", "EOF"],
         )
 
 
@@ -668,6 +838,13 @@ def make_error_test(source_code, expected_error, expected_eof):
     return test
 
 
+def make_semantic_test(source_code, expected_tokens):
+    def test(self):
+        self.assert_token_details(source_code, expected_tokens)
+
+    return test
+
+
 for case_name, source_code, expected_tokens in VALID_CASES:
     setattr(
         LexerTokenizationTests,
@@ -681,6 +858,14 @@ for case_name, source_code, expected_error, expected_eof in ERROR_CASES:
         LexerErrorFeedbackTests,
         f"test_{case_name}",
         make_error_test(source_code, expected_error, expected_eof),
+    )
+
+
+for case_name, source_code, expected_tokens in SEMANTIC_CASES:
+    setattr(
+        LexerSemanticAnalysisTests,
+        f"test_{case_name}",
+        make_semantic_test(source_code, expected_tokens),
     )
 
 
