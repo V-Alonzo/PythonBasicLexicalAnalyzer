@@ -12,8 +12,8 @@ class KEYWORD(Token):
         'string',
         'char',
         'bool',
-        "for"
-    }
+        "for",
+        "do"    }
 
     def __init__(self, line, column, previous_token = None, value = ""):
         super().__init__('KEYWORD', value, line, column, previous_token)

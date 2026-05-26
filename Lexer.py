@@ -27,6 +27,8 @@ class Lexer:
         self.tokens: List[Token] = []
         self.symbol_table = SymbolTable()
         self.assignable_tokens = [NumberToken, StringToken, BOOLEAN]
+        self.scope_openers: List[bool] = []
+        self.deferred_do_scope_exits = 0
 
     def append_error_token(self, token_class: Token, feedback: str = ""):
         self.tokens.append(
@@ -47,7 +49,7 @@ class Lexer:
             self.tokens.append(best_token_type)
 
             if isinstance(best_token_type, IdentifierToken):
-                if type_exists(best_token_type.previous_token.value):
+                if best_token_type.previous_token is not None and type_exists(best_token_type.previous_token.value):
                     # If the previous token is a type and the current token is an identifier, we are declaring a variable.
                     self.symbol_table.declare(best_token_type.value, best_token_type.previous_token.value)
                 else:
@@ -174,13 +176,21 @@ class Lexer:
 
                 if delimiter_helper.is_valid_char(currCharacter):
                     if currCharacter == "{":
+                        self.scope_openers.append(bool(self.tokens) and self.tokens[-1].value == "do")
                         self.symbol_table.enter_scoppe()
-                        print(self.symbol_table.scopes)
                     elif currCharacter == "}":
-                        self.symbol_table.exit_scope()
-                        print(self.symbol_table.scopes)
+                        is_do_scope = self.scope_openers.pop() if self.scope_openers else False
+                        if is_do_scope and self.source[self.position:].lstrip().startswith("while"):
+                            self.deferred_do_scope_exits += 1
+                        else:
+                            self.symbol_table.exit_scope()
+                            print(self.symbol_table.scopes)
                     
                     self.tokens.append(DelimiterToken(self.line, self.column, self.tokens[-1] if self.tokens else None, currCharacter))
+
+                    if currCharacter == ";" and self.deferred_do_scope_exits > 0:
+                        self.symbol_table.exit_scope()
+                        self.deferred_do_scope_exits -= 1
 
                 self.line += 1 if currCharacter == '\n' else 0
                 self.column = 1 if currCharacter == '\n' else self.column + 1
@@ -223,8 +233,7 @@ if __name__ == "__main__":
     #"intx=42;" must be written as "int x = 42;" to be correctly tokenized.
     source_code = '''
 
-    int y = 5;
-for (int i = 0; i < 10; i ++) y + 2;
+do {int i = 5} while (i > 0);
     
     '''
 

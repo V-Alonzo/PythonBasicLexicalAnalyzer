@@ -735,6 +735,16 @@ class LexerSemanticAnalysisTests(unittest.TestCase):
         tokens = tokenize(source_code)
         self.assertEqual([token_details(token) for token in tokens], expected_tokens)
 
+    def test_do_while_condition_can_use_variable_declared_in_do_block(self):
+        tokens = tokenize("do { int i = 5 } while ( i > 0 ) ;")
+
+        self.assertFalse(
+            any(
+                isinstance(token, ErrorToken) and token.feedback == "Undeclared variable: i"
+                for token in tokens
+            )
+        )
+
 
 class LexerIntegratedScenarioTests(unittest.TestCase):
     maxDiff = None
