@@ -14,6 +14,9 @@ from Tokens.hexadecimal_number_token import HexNumberToken
 from Tokens.string_token import StringToken
 from Tokens.multi_line_comment_token import MultiLineCommentToken
 from Tokens.single_line_token import SingleLineCommentToken
+from SymbolTable import SymbolTable
+from datatype_checker import check_type, type_exists, return_value_type
+from Tokens.boolean_token import BOOLEAN
 
 class Lexer:
     def __init__(self, source_code: str):
@@ -22,13 +25,15 @@ class Lexer:
         self.line = 1
         self.column = 1
         self.tokens: List[Token] = []
+        self.symbol_table = SymbolTable()
+        self.assignable_tokens = [NumberToken, StringToken, BOOLEAN]
 
     def append_error_token(self, token_class: Token, feedback: str = ""):
         self.tokens.append(
             ErrorToken(
                 token_class.line,
                 token_class.column,
-                None,
+                self.tokens[-1] if self.tokens else None,
                 token_class.value,
                 feedback,
             )
@@ -38,21 +43,58 @@ class Lexer:
         best_token_type = self.determine_token_type(tokens_classes)
 
         if best_token_type is not None:
+            best_token_type.previous_token = self.tokens[-1] if self.tokens else None
             self.tokens.append(best_token_type)
-            return
 
-        if error_token_class is not None and not error_token_class.value.isspace() and error_token_class.value != "":
+            if isinstance(best_token_type, IdentifierToken):
+                if type_exists(best_token_type.previous_token.value):
+                    # If the previous token is a type and the current token is an identifier, we are declaring a variable.
+                    self.symbol_table.declare(best_token_type.value, best_token_type.previous_token.value)
+                else:
+                    # If the previous token is not a type, we are trying to use a variable.
+                    # We need to check if the variable has been declared in any of the scopes.
+
+                    if self.symbol_table.lookup(best_token_type.value) is None and self.peek_next_char() != "=":
+                        #The variable does not exist in any scope, we have an error.
+                        self.append_error_token(best_token_type, f"Undeclared variable: {best_token_type.value}")
+
+            elif isinstance(best_token_type, AssignToken):
+                # If the current token is an assignation operator, we need to check if the variable being assigned has been declared.
+                variable_name = best_token_type.previous_token.value if best_token_type.previous_token else None
+                variable_type = self.symbol_table.lookup(variable_name) if variable_name else None
+
+                if variable_type is None:
+                    # The variable being assigned has not been declared, we have an error.
+                    self.append_error_token(best_token_type, f"Undeclared variable: {variable_name}")
+                    return
+                
+            elif any([isinstance(best_token_type, token_type) for token_type in self.assignable_tokens]) and isinstance(best_token_type.previous_token, AssignToken):
+                # If the current token is a value being assigned to a variable, we need to check if the type matches the variable one.
+                variable_name = best_token_type.previous_token.previous_token.value if best_token_type.previous_token and best_token_type.previous_token.previous_token else None
+                variable_type = self.symbol_table.lookup(variable_name) if variable_name else None
+
+                if variable_type is not None and not check_type(best_token_type.value, variable_type):
+                    # We have a type mismatch error.
+                    self.append_error_token(best_token_type, f"Type mismatch: cannot assign value of type {return_value_type(best_token_type.value)} to variable of type {variable_type}")
+                elif variable_type is None:
+                    # The variable being assigned has not been declared, we have an error.
+                    self.append_error_token(best_token_type, f"Undeclared variable: {variable_name}")
+                    return
+
+            
+        elif error_token_class is not None and not error_token_class.value.isspace() and error_token_class.value != "":
             self.append_error_token(error_token_class, error_token_class.get_feedback())
             return
 
-        if tokens_classes[0].value != "" and not tokens_classes[0].value.isspace():
+        elif tokens_classes[0].value != "" and not tokens_classes[0].value.isspace():
             self.append_error_token(tokens_classes[0])
+
 
     def finalize_eof(self, tokens_classes: List[Token], error_token_class = None):
         self.finalize_pending_token(tokens_classes, error_token_class)
 
-        if len(self.tokens) == 0 or self.tokens[-1].type != "SEMICOLON":
-            self.tokens.append(ErrorToken(self.line, self.column, None, "EOF", "Unexpected end of file."))
+        if len(self.tokens) == 0 or self.tokens[-1].value != ";":
+            self.tokens.append(ErrorToken(self.line, self.column, self.tokens[-1] if self.tokens else None, "EOF", "Unexpected end of file."))
 
         self.tokens.append(EOFToken(self.line, self.column, self.tokens[-1] if self.tokens else None))
         return self.tokens
@@ -80,6 +122,8 @@ class Lexer:
                 return list(filter(lambda valid_class: isinstance(valid_class, StringToken), valid_classes))[0] 
             if all(isinstance(valid_class, KEYWORD) or isinstance(valid_class, IdentifierToken) for valid_class in valid_classes):
                 return valid_classes[0] if isinstance(valid_classes[0], KEYWORD) else valid_classes[1]
+            if all(isinstance(valid_class, BOOLEAN) or isinstance(valid_class, IdentifierToken) for valid_class in valid_classes):
+                return valid_classes[0] if isinstance(valid_classes[0], BOOLEAN) else valid_classes[1]
         else:
             return None
         
@@ -102,7 +146,8 @@ class Lexer:
             HexNumberToken(line, column, previous_token),
             StringToken(line, column, previous_token),
             MultiLineCommentToken(line, column, previous_token),
-            SingleLineCommentToken(line, column, previous_token)
+            SingleLineCommentToken(line, column, previous_token),
+            BOOLEAN(line, column, previous_token)
         ]
 
 
@@ -128,6 +173,13 @@ class Lexer:
                 error_token_class = None
 
                 if delimiter_helper.is_valid_char(currCharacter):
+                    if currCharacter == "{":
+                        self.symbol_table.enter_scoppe()
+                        print(self.symbol_table.scopes)
+                    elif currCharacter == "}":
+                        self.symbol_table.exit_scope()
+                        print(self.symbol_table.scopes)
+                    
                     self.tokens.append(DelimiterToken(self.line, self.column, self.tokens[-1] if self.tokens else None, currCharacter))
 
                 self.line += 1 if currCharacter == '\n' else 0
@@ -169,7 +221,25 @@ if __name__ == "__main__":
     #otherwise the lexer will not be able to determine the correct token type. 
     #For example, 
     #"intx=42;" must be written as "int x = 42;" to be correctly tokenized.
-    source_code = '''// hola\nint x = 1 ;'''
+    source_code = '''
+
+int x = 10;
+
+{
+
+    int y = 20;
+
+    y = 50;
+
+}
+
+y = 50;
+
+x = 20;
+
+x < z;
+    
+    '''
 
     my_lexer = Lexer(source_code)
 

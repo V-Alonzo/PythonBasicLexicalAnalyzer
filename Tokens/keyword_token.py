@@ -7,7 +7,11 @@ class KEYWORD(Token):
         'while',
         'return',
         'int',
-        'float'
+        'float',
+        'double',
+        'string',
+        'char',
+        'bool'
     }
 
     def __init__(self, line, column, previous_token = None, value = ""):
